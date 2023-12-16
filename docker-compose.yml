@@ -1,0 +1,111 @@
+version: "3.8"
+
+services:
+
+  postgres:
+    container_name: mtech_postgres
+    image: postgres:16.0-alpine3.18
+    restart: always
+    env_file:
+      - ./postgres/postgres.env
+    volumes:
+      - ./postgres/initdb:/docker-entrypoint-initdb.d
+      # - ./postgres/pgdata:/var/lib/postgresql/data
+    networks:
+      default:
+        ipv4_address: 10.1.0.2
+
+
+  webservice:
+    container_name: mtech_webservice
+    image: mtech_webservice
+    restart: always
+    build:
+      context: .
+      dockerfile: dockerfile.app
+    environment:
+      DATABASE_URI: "postgresql://postgres:postgres@10.1.0.2:5432/postgres"
+    volumes:
+      - ./webservice.py:/app/webservice.py
+    command: ["uvicorn", "webservice:app", "--host", "0.0.0.0"]
+    expose: 
+      - 8000
+    networks:
+      default:
+        ipv4_address: 10.1.0.3
+    depends_on:
+      - postgres
+
+
+  client:
+    container_name: mtech_client
+    image: mtech_client
+    restart: always
+    build:
+      context: .
+      dockerfile: dockerfile.client
+    environment:
+      TARGET_URL: http://10.1.0.3:8000/api/data
+      THREADS: 3
+      REQUESTS_DELAY: 4321
+    volumes:
+      - ./client.py:/app/client.py
+      - ./client:/app/logs
+    command: ["python", "client.py"]
+    networks:
+      default:
+        ipv4_address: 10.1.0.4
+    depends_on:
+      - webservice
+
+
+  background1:
+    container_name: mtech_back1
+    image: mtech_background
+    restart: always
+    build:
+      context: .
+      dockerfile: dockerfile.back
+    environment:
+      SOURCE_URL: http://10.1.0.3:8000/api/data
+      TARGET_FILE: "/app/data/shared_file.txt"
+      REQUESTS_DELAY: 4321
+    volumes:
+      - ./background.py:/app/background.py
+      - ./background:/app/data
+    command: ["python", "background.py"]
+    networks:
+      default:
+        ipv4_address: 10.1.0.5
+    depends_on:
+      - client
+
+
+  background2:
+    container_name: mtech_back2
+    image: mtech_background
+    restart: always
+    build:
+      context: .
+      dockerfile: dockerfile.back
+    environment:
+      SOURCE_URL: http://10.1.0.3:8000/api/data
+      TARGET_FILE: "/app/data/shared_file.txt"
+      REQUESTS_DELAY: 321
+    volumes:
+      - ./background.py:/app/background.py
+      - ./background:/app/data
+    command: ["python", "background.py"]
+    networks:
+      default:
+        ipv4_address: 10.1.0.6
+    depends_on:
+      - client
+
+
+networks:
+  default:
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.1.0.0/28
